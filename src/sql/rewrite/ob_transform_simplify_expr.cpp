@@ -2377,11 +2377,30 @@ int ObTransformSimplifyExpr::do_push_not(ObRawExpr *&expr,
     } else {
       // size of not is even
       // not(not c1 > 1)) -> c1>1
+      // try_create_bool_expr() returns an already-boolean expr unchanged.
+      // LIKE reports ObIntType while T_OP_NOT reports ObInt32Type, so the
+      // replacement would change the result type. A later re-formalize of a
+      // parent such as IFNULL then adds an implicit cast above an implicit
+      // cast and raises OB_ERR_UNEXPECTED (4016). Wrap with T_OP_BOOL, which
+      // has the same ObInt32Type as T_OP_NOT.
       ObRawExpr *temp = NULL;
       if (OB_FAIL(ObRawExprUtils::try_create_bool_expr(cur, temp, *expr_factory))) {
       } else if (OB_ISNULL(temp)) {
         ret = OB_ERR_UNEXPECTED;
       } else if (OB_FAIL(temp->formalize(ctx_->session_info_))) {
+      } else if (temp->get_data_type() != expr->get_data_type()) {
+        ObOpRawExpr *bool_expr = NULL;
+        if (OB_FAIL(expr_factory->create_raw_expr(T_OP_BOOL, bool_expr))) {
+        } else if (OB_ISNULL(bool_expr)) {
+          ret = OB_ERR_UNEXPECTED;
+        } else if (OB_FAIL(bool_expr->add_flag(IS_INNER_ADDED_EXPR))) {
+        } else if (OB_FAIL(bool_expr->set_param_expr(temp))) {
+        } else if (OB_FAIL(bool_expr->formalize(ctx_->session_info_))) {
+        } else {
+          expr = bool_expr;
+          is_valid = false;
+          trans_happened = true;
+        }
       } else {
         expr = temp;
         is_valid = false;

@@ -58,6 +58,16 @@ private:
   static int construct_config_json(common::ObIAllocator &allocator, int64_t top_k, int64_t return_doc, common::ObJsonObject *&config_json);
   static int construct_batch_document_array(common::ObIAllocator &allocator, common::ObJsonArray *document_array, int64_t start_idx, int64_t end_idx, common::ObJsonArray *&batch_document_array);
   static int batch_result_add_base(common::ObIAllocator &allocator, common::ObJsonArray *array, int64_t start_idx);
+  static int eval_rerank_in_batches(common::ObIAllocator &allocator,
+                                    const common::ObAIFuncExprInfo &info,
+                                    const share::ObAiModelEndpointInfo &endpoint_info,
+                                    common::ObString &query,
+                                    common::ObJsonArray *document_array,
+                                    common::ObJsonArray *&result_array);
+  static int validate_rerank_batch(common::ObJsonArray *array, int64_t batch_count);
+  static int stable_sort_rerank_results(common::ObIAllocator &allocator,
+                                        common::ObJsonArray *array,
+                                        common::ObJsonArray *&sorted);
   static int compact_json_array_by_key(common::ObIAllocator &allocator, common::ObJsonArray *array1, common::ObJsonArray *array2, common::ObString &score_key, common::ObJsonArray *&compact_array);
   static constexpr int MODEL_IDX = 0;
   static constexpr int QUERY_IDX = 1;

@@ -74,23 +74,33 @@ void ObStopWordChecker::destroy()
 int ObStopWordChecker::check_stopword(const ObFTWord &word, bool &is_stopword)
 {
   int ret = OB_SUCCESS;
-  
-  
-  common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
   if (OB_UNLIKELY(!inited_)) {
     ret = OB_NOT_INIT;
   } else if (OB_UNLIKELY(word.empty())) {
     ret = OB_INVALID_ARGUMENT;
   } else {
     common::ObString cmp_str;
-    // do nothing set out with in if type is the same.
-    if (OB_FAIL(common::ObCharset::charset_convert(
-                                       allocator,
-                                       word.get_word().get_string(),
-                                       word.get_collation_type(),
-                                       stopword_type_.get_collation_type(),
-                                       cmp_str))) {
+    const common::ObString src = word.get_word().get_string();
+    const common::ObCharsetType src_cs =
+        common::ObCharset::charset_type_by_coll(word.get_collation_type());
+    const common::ObCharsetType dst_cs =
+        common::ObCharset::charset_type_by_coll(stopword_type_.get_collation_type());
+    // Invalid collations must still hit charset_convert and return its error.
+    const bool same_charset = (src_cs == dst_cs && common::CHARSET_INVALID != src_cs);
+    // charset_convert with the default flag aliases the input when the charset
+    // does not change. Retag the collation so the hash matches the stopword set.
+    if (same_charset) {
+      cmp_str = src;
     } else {
+      common::ObArenaAllocator allocator(lib::ObMemAttr("ChkStopWord"));
+      if (OB_FAIL(common::ObCharset::charset_convert(allocator,
+                                                     src,
+                                                     word.get_collation_type(),
+                                                     stopword_type_.get_collation_type(),
+                                                     cmp_str))) {
+      }
+    }
+    if (OB_SUCC(ret)) {
       ObFTWord converted(cmp_str.length(), cmp_str.ptr(), stopword_type_);
       ret = stopword_set_.exist_refactored(converted);
       if (OB_HASH_NOT_EXIST == ret) {

@@ -86,6 +86,7 @@ private:
 
   uint32_t handle_size_;
   bool is_smart_;
+  bool utf8mb4_;
 
   ObFTSortList token_list_;
   ObList<ObIKToken, ObIAllocator> result_list_;

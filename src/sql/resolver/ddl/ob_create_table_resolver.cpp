@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "sql/resolver/ddl/ob_create_table_resolver.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/resolver/dml/ob_select_resolver.h"
 #include "sql/resolver/ddl/ob_fts_index_builder_util.h"
 #include "sql/rewrite/ob_transform_utils.h"
@@ -695,6 +696,12 @@ int ObCreateTableResolver::resolve_table_elements(const ParseNode *node,
                                                 table_schema,
                                                 false,
                                                 is_create_table_as))) {
+          } else {
+            uint64_t ai_hidden_ids[3] = {gen_column_id(), gen_column_id(), gen_column_id()};
+            if (OB_FAIL(ObAiColumnService::append_hidden_columns(column, ai_hidden_ids, resolved_cols))) {
+            }
+          }
+          if (OB_FAIL(ret)) {
           } else if (OB_FAIL(check_default_value(column.get_cur_default_value(),
                                           session_info_->get_tz_info_wrap(),
                                           NULL,

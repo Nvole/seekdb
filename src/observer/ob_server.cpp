@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SERVER
 
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "config_checkers.h"
 #ifndef _WIN32
 #include <unistd.h>
@@ -1505,6 +1506,9 @@ int ObServer::check_if_timezone_usable()
     FLOG_INFO("success to start time zone manager");
   }
   FLOG_INFO("check if timezone usable", KR(ret), K(stop_), K(timezone_usable));
+  if (OB_SUCC(ret)) {
+    sql::ObAiColumnService::start_worker();
+  }
   return ret;
 }
 void ObServer::prepare_stop()

@@ -602,6 +602,7 @@ SQL_UNITY_GROUPS = [
             "src/sql/engine/expr/ob_expr_spiv_dim.cpp",
             "src/sql/engine/expr/ob_expr_spiv_value.cpp",
             "src/sql/engine/expr/ob_expr_semantic_distance.cpp",
+            "src/sql/engine/expr/ob_expr_ai/ob_ai_column.cpp",
             "src/sql/engine/expr/ob_expr_ai/ob_ai_func.cpp",
             "src/sql/engine/expr/ob_expr_ai/ob_ai_func_client.cpp",
             "src/sql/engine/expr/ob_expr_ai/ob_ai_func_utils.cpp",

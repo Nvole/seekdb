@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/ob_sql.h"
 #include "lib/json/ob_json_print_utils.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
@@ -1944,6 +1945,8 @@ OB_INLINE int ObSql::handle_text_query(const ObString &stmt, ObSqlCtx &context, 
 
   ObIAllocator &allocator = THIS_WORKER.get_sql_arena_allocator();
   ObSQLSessionInfo &session = result.get_session();
+  if (OB_SUCC(ret) && OB_FAIL(ObAiColumnService::strict_check_sql(session, trimed_stmt))) {
+  }
   
   ObExecContext& ectx = result.get_exec_context();
   int get_plan_err = OB_SUCCESS; //used for judge whether add plan to plan cache

@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_ENG
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/engine/dml/ob_dml_service.h"
 #include "sql/engine/expr/ob_datum_cast.h"
 #include "share/rc/ob_server_runtime.h"
@@ -632,6 +633,10 @@ int ObDMLService::process_insert_row(const ObInsCtDef &ins_ctdef,
     }
 
   }
+  if (OB_SUCC(ret) && ins_ctdef.is_primary_index_ && !is_skipped) {
+    if (OB_FAIL(ObAiColumnService::on_insert_row(dml_op, ins_ctdef))) {
+    }
+  }
   return ret;
 }
 
@@ -732,6 +737,10 @@ int ObDMLService::process_delete_row(const ObDelCtDef &del_ctdef,
     }
     LOG_DEBUG("process delete row", K(ret), K(is_skipped),
                "old_row", ROWEXPR2STR(dml_op.get_eval_ctx(), del_ctdef.old_row_));
+    if (OB_SUCC(ret) && del_ctdef.is_primary_index_ && !is_skipped) {
+      if (OB_FAIL(ObAiColumnService::on_delete_row(dml_op, del_ctdef))) {
+      }
+    }
   }
 
   return ret;
@@ -831,6 +840,10 @@ int ObDMLService::process_update_row(const ObUpdCtDef &upd_ctdef,
     LOG_DEBUG("process update row", K(ret), K(is_skipped), K(upd_ctdef), K(upd_rtdef),
                 "old_row", ROWEXPR2STR(dml_op.get_eval_ctx(), upd_ctdef.old_row_),
                 "new_row", ROWEXPR2STR(dml_op.get_eval_ctx(), upd_ctdef.new_row_));
+  }
+  if (OB_SUCC(ret) && upd_ctdef.is_primary_index_ && !is_skipped) {
+    if (OB_FAIL(ObAiColumnService::on_update_row(dml_op, upd_ctdef))) {
+    }
   }
   return ret;
 }

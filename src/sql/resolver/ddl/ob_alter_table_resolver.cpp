@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/resolver/ddl/ob_alter_table_resolver.h"
 #include "sql/resolver/expr/ob_raw_expr_part_expr_checker.h"
 #include "sql/resolver/dml/ob_delete_resolver.h"
@@ -358,6 +359,12 @@ int ObAlterTableResolver::resolve_action_list(const ParseNode &node)
     ret = OB_ERR_UNEXPECTED;
     SQL_RESV_LOG(WARN, "alter table stmt should not be null", K(ret));
   } else {
+    bool ai_retry_handled = false;
+    if (OB_FAIL(ObAiColumnService::resolve_retry_alter(node, table_schema_,
+            OB_NOT_NULL(session_info_) ? session_info_->get_sessid() : 0, ai_retry_handled))) {
+    } else if (ai_retry_handled) {
+      return ret;
+    }
     // Get the existing index name in the table, and initialize current_index_name_set_
     ObSEArray<ObAuxTableMetaInfo, 16> simple_index_infos;
     // drop_col_act_position_list is only used in mysql mode
@@ -3457,6 +3464,15 @@ int ObAlterTableResolver::resolve_add_column(const ParseNode &node, ObColumnName
         if (OB_SUCC(ret)) {
           if (OB_FAIL(alter_table_stmt->add_column(alter_column_schema))) {
           } else if (FALSE_IT(alter_table_stmt->set_sql_mode(session_info_->get_sql_mode()))) {
+          } else {
+            ObSEArray<AlterColumnSchema, 3> ai_hidden_cols;
+            if (OB_FAIL(ObAiColumnService::build_hidden_alter_columns(
+                    alter_column_schema, table_schema_, ai_hidden_cols))) {
+            }
+            for (int64_t ai_i = 0; OB_SUCC(ret) && ai_i < ai_hidden_cols.count(); ++ai_i) {
+              if (OB_FAIL(alter_table_stmt->add_column(ai_hidden_cols.at(ai_i)))) {
+              }
+            }
           }
         }
       }

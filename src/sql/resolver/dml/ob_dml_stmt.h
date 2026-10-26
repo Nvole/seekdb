@@ -129,11 +129,31 @@ struct ObValuesTableDef {
                        K(access_type_), K(is_const_), K(column_types_));
 };
 
+struct ObFileSqlDef
+{
+  ObFileSqlDef()
+    : kind_(0), header_(1), delim_(','), quote_('"'), escape_('"'),
+      file_size_(-1), mtime_sec_(-1), mtime_nsec_(-1), sample_size_(-1) {}
+  common::ObString path_;
+  int32_t kind_;
+  int32_t header_;
+  int32_t delim_;
+  int32_t quote_;
+  int32_t escape_;
+  common::ObString nullstr_;
+  common::ObString json_format_;
+  int64_t file_size_;
+  int64_t mtime_sec_;
+  int64_t mtime_nsec_;
+  int64_t sample_size_;
+};
+
 struct TableItem
 {
   TableItem()
   {
     table_id_ = common::OB_INVALID_ID;
+    file_sql_def_ = NULL;
     is_index_table_ = false;
     ref_id_ = common::OB_INVALID_ID;
     ref_query_ = NULL;
@@ -150,6 +170,7 @@ struct TableItem
     snapshot_query_expr_ = nullptr;
     snapshot_query_type_ = SnapshotQueryType::NOT_USING;
     function_table_expr_ = nullptr;
+    file_sql_def_ = NULL;
     ddl_schema_version_ = 0;
     ddl_table_id_ = common::OB_INVALID_ID;
     json_table_def_ = nullptr;
@@ -293,6 +314,7 @@ struct TableItem
   ObRawExpr *snapshot_query_expr_;
   SnapshotQueryType snapshot_query_type_;
   ObRawExpr *function_table_expr_;
+  ObFileSqlDef *file_sql_def_;
   int64_t ddl_schema_version_;
   int64_t ddl_table_id_;
   // table partition

@@ -32,6 +32,23 @@ namespace oceanbase
 {
 namespace storage
 {
+namespace
+{
+int ik_next_char_len(const bool utf8mb4,
+                     const ObCollationType coll_type,
+                     const char *buf,
+                     const int64_t buf_size,
+                     int64_t &char_len)
+{
+  if (utf8mb4 && buf_size > 0 && nullptr != buf
+      && static_cast<unsigned char>(buf[0]) < 0x80) {
+    char_len = 1;
+    return OB_SUCCESS;
+  }
+  return ObCharset::first_valid_char(coll_type, buf, buf_size, char_len);
+}
+} // namespace
+
 int ObIKArbitrator::process(TokenizeContext &ctx)
 {
   int ret = OB_SUCCESS;
@@ -113,10 +130,12 @@ int ObIKArbitrator::output_result(TokenizeContext &ctx)
 
   int64_t char_len = 0;
   ObIKTokenChain *chain = nullptr;
+  const bool utf8mb4 = (common::CHARSET_UTF8MB4
+                        == common::ObCharset::charset_type_by_coll(ctx.collation()));
   for (int64_t current = 0; OB_SUCC(ret) && current < ctx.fulltext_len();) {
     ObFTCharUtil::CharType type;
     // maybe not so good to keep single, check it later
-    if (OB_FAIL(ObCharset::first_valid_char(ctx.collation(),
+    if (OB_FAIL(ik_next_char_len(utf8mb4, ctx.collation(),
                                             ctx.fulltext() + current,
                                             ctx.fulltext_len() - current,
                                             char_len))) {
@@ -166,7 +185,7 @@ int ObIKArbitrator::output_result(TokenizeContext &ctx)
         } else {
           // output single word between two token
           while (OB_SUCC(ret) && current < token.offset_) {
-            if (OB_FAIL(ObCharset::first_valid_char(ctx.collation(),
+            if (OB_FAIL(ik_next_char_len(utf8mb4, ctx.collation(),
                                                     ctx.fulltext() + current,
                                                     ctx.fulltext_len() - current,
                                                     char_len))) {

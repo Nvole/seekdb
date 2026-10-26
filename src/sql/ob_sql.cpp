@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/ob_sql.h"
 #include "lib/json/ob_json_print_utils.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
@@ -270,6 +271,28 @@ int ObSql::fill_result_set(ObResultSet &result_set,
       break;
     }
     case stmt::T_EXPLAIN: {
+      ObExplainStmt &ex_stmt = static_cast<ObExplainStmt&>(basic_stmt);
+      if (ex_stmt.is_file_schema_describe()) {
+        const char *names[] = {"column_name", "column_type", "null", "key", "default", "extra"};
+        ObString tname = ObString::make_string("file_sql");
+        if (OB_FAIL(result_set.reserve_field_columns(6))) {
+        }
+        for (int i = 0; OB_SUCC(ret) && i < 6; ++i) {
+          ObField f;
+          f.tname_ = tname;
+          f.org_tname_ = tname;
+          f.cname_ = ObString::make_string(names[i]);
+          f.org_cname_ = f.cname_;
+          f.type_.set_type(ObVarcharType);
+          f.charsetnr_ = CS_TYPE_UTF8MB4_GENERAL_CI;
+          f.type_.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+          f.type_.set_collation_level(CS_LEVEL_IMPLICIT);
+          f.type_.set_varchar(type_name);
+          if (OB_FAIL(result_set.add_field_column(f))) {
+          }
+        }
+        break;
+      }
       ObString tname = ObString::make_string("explain_table");
       ObString cname = ObString::make_string("Query Plan");
       field.tname_ = tname;
@@ -1944,6 +1967,8 @@ OB_INLINE int ObSql::handle_text_query(const ObString &stmt, ObSqlCtx &context, 
 
   ObIAllocator &allocator = THIS_WORKER.get_sql_arena_allocator();
   ObSQLSessionInfo &session = result.get_session();
+  if (OB_SUCC(ret) && OB_FAIL(ObAiColumnService::strict_check_sql(session, trimed_stmt))) {
+  }
   
   ObExecContext& ectx = result.get_exec_context();
   int get_plan_err = OB_SUCCESS; //used for judge whether add plan to plan cache

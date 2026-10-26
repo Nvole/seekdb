@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_ENG
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "common/ob_timeout_ctx.h"
 #include "lib/stat/ob_diagnostic_info_guard.h"
 #include "share/ob_server_struct.h"
@@ -506,6 +507,12 @@ int ObCreateTableExecutor::execute(ObExecContext &ctx, ObCreateTableStmt &stmt)
       query::request_query_ctas_cleanup(
           ctx.get_query_runtime_environment());
     }
+    if (OB_SUCC(ret)) {
+      int ai_ret = ObAiColumnService::flush_pending(ctx, ObString(), table_schema.get_table_name(), res.table_id_);
+      if (OB_SUCCESS != ai_ret) {
+        ret = ai_ret;
+      }
+    }
   }
   return ret;
 }
@@ -754,6 +761,12 @@ int ObAlterTableExecutor::alter_table_exchange_partition_rpc(obcall::ObExchangeP
 int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
 {
   int ret = OB_SUCCESS;
+  bool ai_retry_handled = false;
+  if (OB_FAIL(ObAiColumnService::execute_pending_retry(ctx, ai_retry_handled))) {
+    return ret;
+  } else if (ai_retry_handled) {
+    return ret;
+  }
   ObSqlExecutorCtx *task_exec_ctx = NULL;
   obcall::ObAlterTableArg &alter_table_arg = stmt.get_alter_table_arg();
   obcall::ObExchangePartitionArg &exchange_partition_arg = stmt.get_exchange_partition_arg();
@@ -878,6 +891,12 @@ int ObAlterTableExecutor::execute(ObExecContext &ctx, ObAlterTableStmt &stmt)
       "table_info", table_info_buffer,
       "schema_version", res.schema_version_);
     SQL_ENG_LOG(INFO, "finish alter table execute.", K(ret), "ddl_event_info", ObDDLEventInfo(GCTX.self_addr()), K(first_stmt));
+    if (OB_SUCC(ret)) {
+      int ai_ret = ObAiColumnService::flush_pending(ctx, ObString(), ObString(), alter_table_arg.table_id_);
+      if (OB_SUCCESS != ai_ret) {
+        LOG_WARN("flush ai column metadata after alter failed", K(ai_ret));
+      }
+    }
   }
   return ret;
 }

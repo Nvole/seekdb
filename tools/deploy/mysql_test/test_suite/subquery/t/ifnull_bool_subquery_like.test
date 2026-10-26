@@ -1,0 +1,26 @@
+#owner: zouyuanwei
+#owner group: subquery
+# tags: subquery
+#description: IFNULL with a boolean scalar subquery and a double-negated LIKE
+# must not raise internal error 4016. Issue 1477.
+
+--disable_warnings
+--enable_warnings
+
+# reproducer: scalar subquery is non-NULL FALSE, so the predicate is false
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(1 LIKE "x")));
+
+# control: one negation
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(1 LIKE "x"));
+
+# control: literal instead of a scalar subquery
+SELECT 1 FROM dual WHERE IFNULL(FALSE, !(!(1 LIKE "x")));
+
+# IFNULL must prefer a non-NULL TRUE scalar subquery
+SELECT 1 FROM dual WHERE IFNULL((SELECT TRUE), !(!(1 LIKE "x")));
+
+# longer even NOT chain uses the same rewrite
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(!(!(1 LIKE "x")))));
+
+# select list is not rewritten by push_not and stays 0
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE "x"))) AS r;

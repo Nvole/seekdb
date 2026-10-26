@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "ob_del_upd_resolver.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "sql/resolver/dml/ob_default_value_utils.h"
 #include "sql/resolver/dml/ob_update_stmt.h"
 #include "sql/resolver/dml/ob_insert_stmt.h"
@@ -599,6 +600,50 @@ int ObDelUpdResolver::resolve_additional_assignments(ObIArray<ObTableAssignment>
           }
         }
       }  // end for
+    }
+    if (OB_SUCC(ret) && T_UPDATE_SCOPE == scope) {
+      ObSEArray<ObAiAssignSpec, 4> ai_specs;
+      ObString ai_request_id;
+      if (OB_FAIL(ObAiColumnService::collect_update_assigns(*table_schema, assigns.at(i), ai_specs, ai_request_id))) {
+      }
+      for (int64_t ai = 0; OB_SUCC(ret) && ai < ai_specs.count(); ++ai) {
+        const ObAiAssignSpec &spec = ai_specs.at(ai);
+        const ObColumnSchemaV2 *ai_col = table_schema->get_column_schema(spec.column_id_);
+        ObSEArray<ObColumnRefRawExpr *, 1> ai_col_exprs;
+        ColumnItem *ai_item = NULL;
+        ObAssignment ai_assignment;
+        ObConstRawExpr *ai_const = NULL;
+        if (OB_ISNULL(ai_col)) {
+          ret = OB_ERR_UNEXPECTED;
+        } else if (OB_FAIL(add_column_to_stmt(*table_item, *ai_col, ai_col_exprs))) {
+        } else if (ai_col_exprs.empty()) {
+          ret = OB_ERR_UNEXPECTED;
+        } else if (OB_ISNULL(ai_item = stmt->get_column_item_by_id(table_item->table_id_, ai_col_exprs.at(0)->get_column_id()))) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          ai_assignment.column_expr_ = ai_item->expr_;
+          ai_assignment.is_implicit_ = true;
+          if (0 == spec.kind_) {
+            if (OB_FAIL(ObRawExprUtils::build_null_expr(*params_.expr_factory_, ai_assignment.expr_))) {
+            }
+          } else if (2 == spec.kind_) {
+            if (OB_FAIL(ObRawExprUtils::build_const_string_expr(*params_.expr_factory_, ObVarcharType,
+                    spec.str_value_, CS_TYPE_UTF8MB4_BIN, ai_const))) {
+            } else {
+              ai_assignment.expr_ = ai_const;
+            }
+          } else if (OB_FAIL(ObRawExprUtils::build_const_int_expr(*params_.expr_factory_, ObIntType,
+                    spec.int_value_, ai_const))) {
+          } else {
+            ai_assignment.expr_ = ai_const;
+          }
+          if (OB_FAIL(ret)) {
+          } else if (OB_FAIL(ObRawExprUtils::build_column_conv_expr(*params_.expr_factory_, *params_.allocator_,
+                    *ai_item->get_expr(), ai_assignment.expr_, session_info_))) {
+          } else if (OB_FAIL(add_assignment(assigns, table_item, ai_item, ai_assignment))) {
+          }
+        }
+      }
     }
     // For INSERT ON DUPLICATE KEY UPDATE, if table has vector index column and is heap table,
     // call build_hidden_pk_assignment regardless of whether UPDATE clause contains vector index column

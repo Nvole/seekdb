@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "config_bridge.h"
+#include "sql/engine/expr/ob_expr_ai/ob_ai_column.h"
 #include "ob_ddl_resolver.h"
 #include "data_plane/blocksstable/ob_index_block_util.h"
 #include "sql/resolver/dml/ob_dml_resolver.h"
@@ -2164,6 +2165,11 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
           resolve_stat.is_autoincrement_ = true;
         }
         break;
+      case T_AI_COLUMN_DEF: {
+        if (OB_FAIL(ObAiColumnService::define_column(database_name_, table_name_, column, attr_node, *allocator_))) {
+        }
+        break;
+      }
       case T_COMMENT:{
         if (attr_node->num_child_ != 1
             || OB_ISNULL(attr_node->children_[0])

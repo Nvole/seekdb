@@ -132,6 +132,10 @@ public:
   virtual int get_next(ObDatum &next_token, int64_t &token_freq) override;
 private:
   ObArenaAllocator norm_allocator_;
+  // Reused across tokens inside one document. Invalidated on reuse/reset,
+  // same as the old per-token arena reuse.
+  char *ascii_norm_buf_;
+  uint32_t ascii_norm_cap_;
 };
 
 // group (deduplicate) and count

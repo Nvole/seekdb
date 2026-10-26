@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SHARE
 
 #include "share/text_analysis/ob_token_stream.h"
+#include "lib/charset/ob_ctype.h"
 #include "share/rc/ob_server_runtime.h"
 
 namespace oceanbase
@@ -98,7 +99,10 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
     int64_t token_len = 0;
     // to next non-whitespace pos
     while (OB_SUCC(ret) && found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      const unsigned char raw = static_cast<unsigned char>(doc[trav_pos_]);
+      const int64_t c_len = (raw < 0x80 && nullptr != cs_ && 1 == cs_->mbminlen)
+                                ? 1
+                                : static_cast<int64_t>(ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len));
       trav_pos_ += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {// if char is invalid, just skip the rest of document
         iter_end_ = true;
@@ -112,7 +116,10 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
     // to next whitespace pos
     while (OB_SUCC(ret) && !found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      const unsigned char raw = static_cast<unsigned char>(doc[trav_pos_]);
+      const int64_t c_len = (raw < 0x80 && nullptr != cs_ && 1 == cs_->mbminlen)
+                                ? 1
+                                : static_cast<int64_t>(ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len));
       trav_pos_ += c_len;
       token_len += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {
@@ -136,10 +143,13 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
 bool ObTextWhitespaceTokenizer::found_delimiter()
 {
-  bool found = false;
-  const char *curr_char = input_doc_->ptr_ + trav_pos_;
-  found = ob_isspace(cs_, *curr_char) || ob_iscntrl(cs_, *curr_char) || ob_ispunct(cs_, *curr_char);
-  return found;
+  // Same predicate as ob_isspace || ob_iscntrl || ob_ispunct, which only
+  // inspects the current byte. One ctype lookup instead of three.
+  if (OB_UNLIKELY(nullptr == cs_ || nullptr == cs_->ctype)) {
+    return false;
+  }
+  const unsigned char c = static_cast<unsigned char>(*(input_doc_->ptr_ + trav_pos_));
+  return 0 != ((cs_->ctype + 1)[c] & (_MY_SPC | _MY_CTR | _MY_PNT));
 }
 
 ObTokenNormalizer::ObTokenNormalizer()
@@ -220,18 +230,24 @@ int ObTokenStopWordNormalizer::filter_special_marks(const ObDatum &check_token, 
 
 ObBasicEnglishNormalizer::ObBasicEnglishNormalizer()
   : ObTokenNormalizer(),
-    norm_allocator_("TxtTokGrpFilter", OB_MALLOC_NORMAL_BLOCK_SIZE)
+    norm_allocator_("TxtTokGrpFilter", OB_MALLOC_NORMAL_BLOCK_SIZE),
+    ascii_norm_buf_(nullptr),
+    ascii_norm_cap_(0)
 {
 }
 
 void ObBasicEnglishNormalizer::reset()
 {
+  ascii_norm_buf_ = nullptr;
+  ascii_norm_cap_ = 0;
   norm_allocator_.reset();
   ObTokenNormalizer::reset();
 }
 
 void ObBasicEnglishNormalizer::reuse()
 {
+  ascii_norm_buf_ = nullptr;
+  ascii_norm_cap_ = 0;
   norm_allocator_.reuse();
   ObTokenNormalizer::reuse();
 }
@@ -244,7 +260,6 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
   } else {
     next_token.reset();
     token_freq = 0;
-    norm_allocator_.reuse();
     ObDatum tmp_datum;
     bool found_alnum = false;
     uint32_t norm_token_len = 0;
@@ -295,7 +310,37 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
     } else {
       ObString norm_alnum_token(norm_token_len, norm_token_ptr);
       ObString norm_lower_token;
-      if (OB_FAIL(ObCharset::tolower(cs_, norm_alnum_token, norm_lower_token, norm_allocator_))) {
+      bool pure_ascii = true;
+      for (uint32_t i = 0; i < norm_token_len; ++i) {
+        if (static_cast<unsigned char>(norm_token_ptr[i]) >= 0x80) {
+          pure_ascii = false;
+          break;
+        }
+      }
+      // ASCII Unicode lowercase is A-Z -> a-z and leaves every other
+      // U+0000..U+007F byte unchanged. The buffer is overwritten on the
+      // next ASCII token, matching the old per-token arena reuse.
+      if (pure_ascii) {
+        if (ascii_norm_cap_ < norm_token_len || nullptr == ascii_norm_buf_) {
+          char *buf = static_cast<char *>(norm_allocator_.alloc(norm_token_len));
+          if (OB_ISNULL(buf)) {
+            ret = OB_ALLOCATE_MEMORY_FAILED;
+          } else {
+            ascii_norm_buf_ = buf;
+            ascii_norm_cap_ = norm_token_len;
+          }
+        }
+        if (OB_SUCC(ret)) {
+          for (uint32_t i = 0; i < norm_token_len; ++i) {
+            unsigned char ch = static_cast<unsigned char>(norm_token_ptr[i]);
+            if ('A' <= ch && ch <= 'Z') {
+              ch = static_cast<unsigned char>(ch - 'A' + 'a');
+            }
+            ascii_norm_buf_[i] = static_cast<char>(ch);
+          }
+          next_token.set_string(ascii_norm_buf_, norm_token_len);
+        }
+      } else if (OB_FAIL(ObCharset::tolower(cs_, norm_alnum_token, norm_lower_token, norm_allocator_))) {
       } else {
         next_token.set_string(norm_lower_token);
       }

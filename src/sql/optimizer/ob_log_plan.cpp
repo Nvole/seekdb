@@ -2241,6 +2241,7 @@ int ObLogPlan::allocate_function_table_path(FunctionTablePath *func_table_path,
     op->set_table_id(func_table_path->table_id_);
     op->add_values_expr(func_table_path->value_expr_);
     op->set_table_name(table_item->get_table_name());
+    op->set_file_sql_def(table_item->file_sql_def_);
     if (OB_FAIL(append(op->get_filter_exprs(), func_table_path->filter_))) {
     } else if (OB_FAIL(op->compute_property(func_table_path))) {
     } else if (OB_FAIL(op->pick_out_startup_filters())) {
@@ -6830,6 +6831,10 @@ int ObLogPlan::allocate_select_into_as_top(ObLogicalOperator *&old_top)
       select_into->set_escaped_cht(into_item->escaped_cht_);
       select_into->set_cs_type(into_item->cs_type_);
       select_into->set_external_properties(into_item->external_properties_);
+      select_into->set_file_sql_copy(into_item->file_sql_copy_);
+      select_into->set_file_sql_header(into_item->file_sql_header_);
+      select_into->set_file_sql_nullstr(into_item->file_sql_nullstr_);
+      select_into->set_file_sql_header_line(into_item->file_sql_header_line_);
       select_into->set_child(ObLogicalOperator::first_child, old_top);
       // compute property
       if (OB_FAIL(select_into->compute_property())) {
@@ -10343,22 +10348,29 @@ int ObLogPlan::allocate_output_expr_for_values_op(ObLogicalOperator &values_op)
   } else {
     // Static typing engine need expr to output rows. We generate a const output expr
     // for values_op operator.
-    ObConstRawExpr *output = NULL;
-    if (OB_FAIL(optimizer_context_.get_expr_factory().create_raw_expr(T_VARCHAR, output))) {
-    } else {
-      ObObj v;
-      v.set_varchar(" ");
-      v.set_collation_type(ObCharset::get_system_collation());
-      output->set_value(v);
-      if (OB_FAIL(output->formalize(optimizer_context_.get_session_info()))) {
-      } else if (OB_FAIL(values_op.get_output_exprs().push_back(output))) {
+    int nexpr = 1;
+    if (NULL != get_stmt() && get_stmt()->is_explain_stmt() &&
+        static_cast<const ObExplainStmt *>(get_stmt())->is_file_schema_describe()) {
+      nexpr = 6;
+    }
+    for (int i = 0; OB_SUCC(ret) && i < nexpr; ++i) {
+      ObConstRawExpr *output = NULL;
+      if (OB_FAIL(optimizer_context_.get_expr_factory().create_raw_expr(T_VARCHAR, output))) {
       } else {
-        values_op.set_branch_id(0);
-        values_op.set_id(0);
-        values_op.set_op_id(0);
-        if (OB_FAIL(get_optimizer_context().get_all_exprs().append(output))) {
-        } else { /*do nothing*/ }
+        ObObj v;
+        v.set_varchar(" ");
+        v.set_collation_type(ObCharset::get_system_collation());
+        output->set_value(v);
+        if (OB_FAIL(output->formalize(optimizer_context_.get_session_info()))) {
+        } else if (OB_FAIL(values_op.get_output_exprs().push_back(output))) {
+        } else if (OB_FAIL(get_optimizer_context().get_all_exprs().append(output))) {
+        }
       }
+    }
+    if (OB_SUCC(ret)) {
+      values_op.set_branch_id(0);
+      values_op.set_id(0);
+      values_op.set_op_id(0);
     }
   }
   return ret;

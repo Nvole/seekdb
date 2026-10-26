@@ -5486,6 +5486,10 @@ int ObStaticEngineCG::generate_spec(ObLogSelectInto &op, ObSelectIntoSpec &spec,
       spec.cs_type_ = op.get_cs_type();
       spec.parallel_ = op.get_parallel();
       spec.is_overwrite_ = op.get_is_overwrite();
+      spec.file_sql_copy_ = op.get_file_sql_copy();
+      spec.file_sql_header_ = op.get_file_sql_header();
+      OZ(ob_write_string(alloc, op.get_file_sql_nullstr(), spec.file_sql_nullstr_));
+      OZ(ob_write_string(alloc, op.get_file_sql_header_line(), spec.file_sql_header_line_));
       spec.plan_->need_drive_dml_query_ = true;
     }
   }
@@ -5511,6 +5515,21 @@ int ObStaticEngineCG::generate_spec(ObLogFunctionTable &op, ObFunctionTableSpec 
   } else {
     spec.has_correlated_expr_ = value_raw_expr->has_flag(CNT_DYNAMIC_PARAM);
     spec.value_expr_ = value_expr;
+    if (NULL != op.get_file_sql_def()) {
+      const ObFileSqlDef *def = op.get_file_sql_def();
+      spec.file_sql_kind_ = def->kind_;
+      spec.file_header_ = def->header_;
+      spec.file_delim_ = def->delim_;
+      spec.file_quote_ = def->quote_;
+      spec.file_escape_ = def->escape_;
+      spec.file_size_ = def->file_size_;
+      spec.file_mtime_sec_ = def->mtime_sec_;
+      spec.file_mtime_nsec_ = def->mtime_nsec_;
+      if (OB_FAIL(ob_write_string(alloc, def->path_, spec.file_path_))) {
+      } else if (OB_FAIL(ob_write_string(alloc, def->nullstr_, spec.file_nullstr_))) {
+      } else if (OB_FAIL(ob_write_string(alloc, def->json_format_, spec.file_json_format_))) {
+      }
+    }
     for (int64_t i = 0; OB_SUCC(ret) && i < op.get_output_exprs().count(); ++i) {
       if (OB_FAIL(mark_expr_self_produced(op.get_output_exprs().at(i)))) {
       }
@@ -5526,6 +5545,26 @@ int ObStaticEngineCG::generate_spec(ObLogFunctionTable &op, ObFunctionTableSpec 
         OZ (mark_expr_self_produced(col_item->expr_));
         OZ (generate_rt_expr(*col_item->expr_, rt_expr));
         OZ (spec.column_exprs_.push_back(rt_expr));
+        if (OB_SUCC(ret) && spec.file_sql_kind_ != 0) {
+          int32_t ord = static_cast<int32_t>(col_item->column_id_ - common::OB_APP_MIN_COLUMN_ID);
+          char *nbuf = static_cast<char *>(alloc.alloc(spec.file_names_.length() + col_item->column_name_.length() + 1));
+          char *obuf = static_cast<char *>(alloc.alloc(spec.file_ordinals_.length() + sizeof(ord)));
+          if (OB_ISNULL(nbuf) || OB_ISNULL(obuf)) {
+            ret = OB_ALLOCATE_MEMORY_FAILED;
+          } else {
+            if (spec.file_names_.length() > 0) {
+              MEMCPY(nbuf, spec.file_names_.ptr(), spec.file_names_.length());
+            }
+            MEMCPY(nbuf + spec.file_names_.length(), col_item->column_name_.ptr(), col_item->column_name_.length());
+            nbuf[spec.file_names_.length() + col_item->column_name_.length()] = '\x1f';
+            spec.file_names_.assign_ptr(nbuf, spec.file_names_.length() + col_item->column_name_.length() + 1);
+            if (spec.file_ordinals_.length() > 0) {
+              MEMCPY(obuf, spec.file_ordinals_.ptr(), spec.file_ordinals_.length());
+            }
+            MEMCPY(obuf + spec.file_ordinals_.length(), &ord, sizeof(ord));
+            spec.file_ordinals_.assign_ptr(obuf, spec.file_ordinals_.length() + static_cast<int32_t>(sizeof(ord)));
+          }
+        }
       }
     }
   }

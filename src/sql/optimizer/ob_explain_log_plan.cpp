@@ -82,14 +82,53 @@ int ObExplainLogPlan::generate_normal_raw_plan()
         //to use normal encoding instead of memcopy
         optimizer_context_.set_packed(false);
       }
+      if (explain_stmt->is_file_schema_describe() && child_stmt->is_select_stmt()) {
+        const ObSelectStmt *sel = static_cast<const ObSelectStmt *>(child_stmt);
+        for (int64_t i = 0; OB_SUCC(ret) && i < sel->get_select_item_size(); ++i) {
+          const SelectItem &si = sel->get_select_item(i);
+          const char *tn = "VARCHAR";
+          ObObjType tp = si.expr_->get_result_type().get_type();
+          if (tp == ObTinyIntType) tn = "BOOLEAN";
+          else if (tp == ObIntType) tn = "BIGINT";
+          else if (tp == ObDoubleType) tn = "DOUBLE";
+          else if (tp == ObDateType) tn = "DATE";
+          else if (tp == ObDateTimeType) tn = "DATETIME";
+          else if (tp == ObNullType) tn = "NULL";
+          const char *nn = si.expr_->get_result_type().has_result_flag(NOT_NULL_FLAG) ? "NO" : "YES";
+          ObObj cells[6];
+          ObString n1, n2, n3;
+          ObIAllocator &alloc = get_allocator();
+          if (OB_FAIL(ob_write_string(alloc, si.alias_name_, n1))) {
+          } else if (OB_FAIL(ob_write_string(alloc, ObString(tn), n2))) {
+          } else if (OB_FAIL(ob_write_string(alloc, ObString(nn), n3))) {
+          } else {
+            cells[0].set_varchar(n1);
+            cells[0].set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+            cells[1].set_varchar(n2);
+            cells[1].set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+            cells[2].set_varchar(n3);
+            cells[2].set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
+            cells[3].set_null();
+            cells[4].set_null();
+            cells[5].set_null();
+            ObNewRow row;
+            row.cells_ = cells;
+            row.count_ = 6;
+            if (OB_FAIL(values_op->add_row(row))) {
+            }
+          }
+        }
+      } else {
       for (int64_t i = 0; OB_SUCC(ret) && i < plan_strs.count(); ++i) {
         ObObj obj;
         obj.set_varchar(plan_strs.at(i));
+        obj.set_collation_type(CS_TYPE_UTF8MB4_GENERAL_CI);
         ObNewRow row;
         row.cells_ = &obj;
         row.count_ = 1;
         if (OB_FAIL(values_op->add_row(row))) {
         }
+      }
       }
       if (OB_SUCC(ret)) {
         // set values_op operator id && set max operator id for LogPlan

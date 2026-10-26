@@ -44,7 +44,9 @@ public:
         escaped_cht_(),
         cs_type_(CS_TYPE_INVALID),
         is_overwrite_(false),
-        external_properties_()
+        external_properties_(),
+        file_sql_copy_(false),
+        file_sql_header_(true)
   {
   }
   virtual ~ObLogSelectInto() {}
@@ -188,6 +190,18 @@ private:
   common::ObCollationType cs_type_;
   bool is_overwrite_;
   common::ObString external_properties_;
+  bool file_sql_copy_;
+  bool file_sql_header_;
+  common::ObString file_sql_nullstr_;
+  common::ObString file_sql_header_line_;
+  void set_file_sql_copy(bool v) { file_sql_copy_ = v; }
+  bool get_file_sql_copy() const { return file_sql_copy_; }
+  void set_file_sql_header(bool v) { file_sql_header_ = v; }
+  bool get_file_sql_header() const { return file_sql_header_; }
+  void set_file_sql_nullstr(const common::ObString &s) { file_sql_nullstr_ = s; }
+  common::ObString get_file_sql_nullstr() const { return file_sql_nullstr_; }
+  void set_file_sql_header_line(const common::ObString &s) { file_sql_header_line_ = s; }
+  common::ObString get_file_sql_header_line() const { return file_sql_header_line_; }
 };
 }
 }

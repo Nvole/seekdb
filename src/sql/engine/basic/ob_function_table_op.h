@@ -32,11 +32,27 @@ class ObFunctionTableSpec : public ObOpSpec
 OB_UNIS_VERSION_V(1);
 public:
   ObFunctionTableSpec(common::ObIAllocator &alloc, const ObPhyOperatorType type)
-    : ObOpSpec(alloc, type), value_expr_(nullptr), column_exprs_(alloc), has_correlated_expr_(false)
+    : ObOpSpec(alloc, type), value_expr_(nullptr), column_exprs_(alloc), has_correlated_expr_(false),
+      file_sql_kind_(0), file_path_(), file_header_(1), file_delim_(','), file_quote_('"'), file_escape_('"'),
+      file_nullstr_(), file_json_format_(), file_size_(-1), file_mtime_sec_(-1), file_mtime_nsec_(-1),
+      file_names_(), file_ordinals_()
   {}
   ObExpr *value_expr_;
   common::ObFixedArray<ObExpr*, common::ObIAllocator> column_exprs_;
   bool has_correlated_expr_;
+  int64_t file_sql_kind_;
+  common::ObString file_path_;
+  int64_t file_header_;
+  int64_t file_delim_;
+  int64_t file_quote_;
+  int64_t file_escape_;
+  common::ObString file_nullstr_;
+  common::ObString file_json_format_;
+  int64_t file_size_;
+  int64_t file_mtime_sec_;
+  int64_t file_mtime_nsec_;
+  common::ObString file_names_;
+  common::ObString file_ordinals_;
 };
 
 class ObFunctionTableOp : public ObOperator
@@ -48,8 +64,11 @@ public:
     already_calc_(false),
     row_count_(0),
     col_count_(0),
-    value_table_(NULL) 
+    value_table_(NULL),
+    file_reader_(NULL)
   {}
+  int file_sql_next_row();
+  void file_sql_close();
 
   virtual int inner_open() override;
   virtual int inner_rescan() override;
@@ -68,6 +87,7 @@ private:
   common::ObObj value_;
   pl::ObPLCollection *value_table_;
   int (ObFunctionTableOp::*next_row_func_)();
+  struct FsReader *file_reader_;
 };
 
 } // end namespace sql

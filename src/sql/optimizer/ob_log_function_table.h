@@ -17,6 +17,7 @@
 #ifndef _OB_LOG_FUNCTION_TABLE_H
 #define _OB_LOG_FUNCTION_TABLE_H
 #include "sql/optimizer/ob_logical_operator.h"
+#include "sql/resolver/dml/ob_dml_stmt.h"
 
 namespace oceanbase
 {
@@ -30,7 +31,8 @@ public:
         table_id_(OB_INVALID_ID),
         value_expr_(NULL),
         table_name_(),
-        access_exprs_() { }
+        access_exprs_(),
+        file_sql_def_(NULL) { }
   virtual ~ObLogFunctionTable() {}
   void add_values_expr(ObRawExpr* expr) { value_expr_ = expr; }
   const ObRawExpr* get_value_expr() const { return value_expr_; }
@@ -42,6 +44,8 @@ public:
   virtual int is_my_fixed_expr(const ObRawExpr *expr, bool &is_fixed) override;
   virtual int allocate_expr_post(ObAllocExprContext &ctx) override;
   void set_table_id(uint64_t table_id) { table_id_ = table_id; }
+  void set_file_sql_def(const ObFileSqlDef *def) { file_sql_def_ = def; }
+  const ObFileSqlDef *get_file_sql_def() const { return file_sql_def_; }
   uint64_t get_table_id() const { return table_id_; }
   /**
    *  Get table name
@@ -56,6 +60,7 @@ private:
   ObRawExpr* value_expr_;
   common::ObString table_name_;
   common::ObSEArray<ObRawExpr*, 4, common::ModulePageAllocator, true> access_exprs_;
+  const ObFileSqlDef *file_sql_def_;
   DISALLOW_COPY_AND_ASSIGN(ObLogFunctionTable);
 };
 }

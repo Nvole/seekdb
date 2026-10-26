@@ -27,6 +27,10 @@
 #include "common/udt/ob_collection_type.h"
 #include "share/config/ob_server_config.h"
 #include "share/ob_lob_access_utils.h"
+#include "common/timezone/ob_time_convert.h"
+#include <limits.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 namespace oceanbase
 {
@@ -38,7 +42,7 @@ OB_SERIALIZE_MEMBER(ObSelectIntoOpInput, task_id_, sqc_id_);
 OB_SERIALIZE_MEMBER((ObSelectIntoSpec, ObOpSpec), into_type_, user_vars_, outfile_name_,
     field_str_, line_str_, closed_cht_, is_optional_, select_exprs_, is_single_, max_file_size_,
     escaped_cht_, cs_type_, parallel_, buffer_size_, is_overwrite_,
-    external_properties_);
+    external_properties_, file_sql_copy_, file_sql_header_, file_sql_nullstr_, file_sql_header_line_);
 
 
 int ObSelectIntoOp::inner_open()
@@ -188,6 +192,18 @@ int ObSelectIntoOp::calc_outfile_path()
 }
 int ObSelectIntoOp::inner_get_next_row()
 {
+  if (MY_SPEC.file_sql_copy_) {
+    int ret = OB_SUCCESS;
+    if (file_sql_drained_) {
+      ret = OB_ITER_END;
+    } else if (OB_FAIL(file_sql_copy_drain())) {
+      file_sql_drained_ = true;
+    } else {
+      file_sql_drained_ = true;
+      ret = OB_ITER_END;
+    }
+    return ret;
+  }
   int ret = 0 == top_limit_cnt_ ? OB_ITER_END : OB_SUCCESS;
   int64_t row_count = 0;
   const ObItemType into_type = MY_SPEC.into_type_;
@@ -236,6 +252,16 @@ int ObSelectIntoOp::inner_get_next_row()
 
 int ObSelectIntoOp::inner_get_next_batch(const int64_t max_row_cnt)
 {
+  if (MY_SPEC.file_sql_copy_) {
+    int ret = OB_SUCCESS;
+    if (!file_sql_drained_) {
+      ret = file_sql_copy_drain();
+      file_sql_drained_ = true;
+    }
+    brs_.size_ = 0;
+    brs_.end_ = true;
+    return OB_ITER_END == ret ? OB_SUCCESS : ret;
+  }
   int ret = OB_SUCCESS;
   const ObBatchRows *child_brs = NULL;
   int64_t batch_size = min(max_row_cnt, MY_SPEC.max_batch_size_);
@@ -1283,4 +1309,155 @@ void ObSelectIntoOp::destroy()
 }
 
 }
+}
+
+
+int ObSelectIntoOp::file_sql_copy_drain()
+{
+  int ret = OB_SUCCESS;
+  bool enabled = false;
+  char final_path[PATH_MAX];
+  char tmp_path[PATH_MAX];
+  tmp_path[0] = '\0';
+  final_path[0] = '\0';
+  FILE *fp = NULL;
+  int fd = -1;
+  if (OB_ISNULL(ctx_.get_my_session())) {
+    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_FAIL(ctx_.get_my_session()->get_enable_file_sql(enabled))) {
+  } else if (!enabled) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, "file sql is disabled");
+  } else if (basic_url_.length() <= 0 || basic_url_.length() >= PATH_MAX - 16) {
+    ret = OB_INVALID_ARGUMENT;
+  } else {
+    MEMCPY(final_path, basic_url_.ptr(), basic_url_.length());
+    final_path[basic_url_.length()] = '\0';
+    if (0 == access(final_path, F_OK)) {
+      ret = OB_FILE_ALREADY_EXIST;
+      LOG_USER_ERROR(OB_FILE_ALREADY_EXIST);
+    } else {
+      snprintf(tmp_path, sizeof(tmp_path), "%s.obtmp", final_path);
+      fd = open(tmp_path, O_CREAT | O_EXCL | O_WRONLY, 0644);
+      if (fd < 0) {
+        ret = OB_IO_ERROR;
+        tmp_path[0] = '\0';
+      } else if (OB_ISNULL(fp = fdopen(fd, "wb"))) {
+        close(fd);
+        unlink(tmp_path);
+        tmp_path[0] = '\0';
+        ret = OB_IO_ERROR;
+      }
+    }
+  }
+  if (OB_SUCC(ret) && MY_SPEC.file_sql_header_ && MY_SPEC.file_sql_header_line_.length() > 0) {
+    if (fwrite(MY_SPEC.file_sql_header_line_.ptr(), 1, MY_SPEC.file_sql_header_line_.length(), fp) !=
+        (size_t)MY_SPEC.file_sql_header_line_.length()) {
+      ret = OB_IO_ERROR;
+    }
+  }
+  ObPhysicalPlanCtx *phy_plan_ctx = ctx_.get_physical_plan_ctx();
+  int64_t row_count = 0;
+  const char *delim = ",";
+  int delim_len = 1;
+  if (field_str_.is_varying_len_char_type() && field_str_.get_varchar().length() > 0) {
+    delim = field_str_.get_varchar().ptr();
+    delim_len = field_str_.get_varchar().length();
+  }
+  while (OB_SUCC(ret)) {
+    clear_evaluated_flag();
+    if (OB_FAIL(child_->get_next_row())) {
+      if (OB_ITER_END == ret) {
+        ret = OB_SUCCESS;
+        break;
+      }
+    } else {
+      ++row_count;
+      const ObIArray<ObExpr *> &exprs = MY_SPEC.select_exprs_;
+      for (int64_t i = 0; OB_SUCC(ret) && i < exprs.count(); ++i) {
+        ObDatum *datum = NULL;
+        ObObj obj;
+        if (i > 0 && fwrite(delim, 1, delim_len, fp) != (size_t)delim_len) {
+          ret = OB_IO_ERROR;
+        } else if (OB_FAIL(exprs.at(i)->eval(eval_ctx_, datum))) {
+        } else if (OB_FAIL(datum->to_obj(obj, exprs.at(i)->obj_meta_, exprs.at(i)->obj_datum_map_))) {
+        } else if (obj.is_null() || datum->is_null()) {
+          if (MY_SPEC.file_sql_nullstr_.length() > 0 &&
+              fwrite(MY_SPEC.file_sql_nullstr_.ptr(), 1, MY_SPEC.file_sql_nullstr_.length(), fp) !=
+              (size_t)MY_SPEC.file_sql_nullstr_.length()) {
+            ret = OB_IO_ERROR;
+          }
+        } else if (obj.is_double()) {
+          char buf[64];
+          int n = snprintf(buf, sizeof(buf), "%.15g", obj.get_double());
+          if (n < 0 || n >= (int)sizeof(buf) || fwrite(buf, 1, n, fp) != (size_t)n) ret = OB_IO_ERROR;
+        } else if (obj.is_integer_type()) {
+          char buf[64];
+          int n = snprintf(buf, sizeof(buf), "%lld", (long long)obj.get_int());
+          if (n < 0 || n >= (int)sizeof(buf) || fwrite(buf, 1, n, fp) != (size_t)n) ret = OB_IO_ERROR;
+        } else if (obj.is_date()) {
+          char buf[64];
+          int64_t pos = 0;
+          if (OB_FAIL(ObTimeConverter::date_to_str(obj.get_date(), buf, sizeof(buf), pos))) {
+          } else if (fwrite(buf, 1, (size_t)pos, fp) != (size_t)pos) {
+            ret = OB_IO_ERROR;
+          }
+        } else if (obj.is_datetime()) {
+          char buf[64];
+          int64_t pos = 0;
+          if (OB_FAIL(ObTimeConverter::datetime_to_str(obj.get_datetime(),
+                                                       ctx_.get_my_session()->get_timezone_info(),
+                                                       0, buf, sizeof(buf), pos))) {
+          } else if (fwrite(buf, 1, (size_t)pos, fp) != (size_t)pos) {
+            ret = OB_IO_ERROR;
+          }
+        } else {
+          char pbuf[1024];
+          int64_t pos = 0;
+          ObString s;
+          if (ob_is_string_type(obj.get_type())) {
+            s = obj.get_string();
+          } else if (OB_FAIL(obj.print_plain_str_literal(pbuf, (int64_t)sizeof(pbuf), pos))) {
+          } else {
+            s.assign_ptr(pbuf, static_cast<int32_t>(pos));
+          }
+          if (OB_FAIL(ret)) {
+          } else if (fputc('"', fp) == EOF) {
+            ret = OB_IO_ERROR;
+          }
+          for (int k = 0; OB_SUCC(ret) && k < s.length(); ++k) {
+            char ch = s.ptr()[k];
+            if (ch == '"') {
+              if (fputs("\"\"", fp) == EOF) ret = OB_IO_ERROR;
+            } else if (fputc(ch, fp) == EOF) {
+              ret = OB_IO_ERROR;
+            }
+          }
+          if (OB_SUCC(ret) && fputc('"', fp) == EOF) ret = OB_IO_ERROR;
+        }
+      }
+      if (OB_SUCC(ret) && fputc('\n', fp) == EOF) ret = OB_IO_ERROR;
+    }
+  }
+  if (NULL != fp) {
+    if (0 != fflush(fp)) ret = OB_IO_ERROR;
+    fclose(fp);
+    fp = NULL;
+  }
+  if (OB_SUCC(ret)) {
+    if (0 == access(final_path, F_OK)) {
+      unlink(tmp_path);
+      ret = OB_FILE_ALREADY_EXIST;
+      LOG_USER_ERROR(OB_FILE_ALREADY_EXIST);
+    } else if (0 != rename(tmp_path, final_path)) {
+      unlink(tmp_path);
+      ret = OB_IO_ERROR;
+    }
+  } else if (tmp_path[0] != '\0') {
+    unlink(tmp_path);
+  }
+  if (OB_NOT_NULL(phy_plan_ctx) && OB_SUCC(ret)) {
+    phy_plan_ctx->set_affected_rows(row_count);
+  }
+  return ret;
 }

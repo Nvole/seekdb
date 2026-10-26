@@ -64,6 +64,19 @@ int ObExplainResolver::resolve(const ParseNode &parse_tree)
         LOG_WARN("failed to generate stmt for child stmt");
       } else {
         explain_stmt->set_explain_query_stmt(static_cast<ObDMLStmt *>(child_stmt));
+        if ((parse_tree.value_ == 1) && child_stmt->is_select_stmt()) {
+          ObSelectStmt *sel = static_cast<ObSelectStmt *>(child_stmt);
+          bool has_file = false;
+          for (int64_t i = 0; i < sel->get_table_size(); ++i) {
+            const TableItem *ti = sel->get_table_item(i);
+            if (NULL != ti && NULL != ti->file_sql_def_) {
+              has_file = true;
+            }
+          }
+          if (has_file) {
+            explain_stmt->set_file_schema_describe(true);
+          }
+        }
         ParseNode *format = parse_tree.children_[EXPLAIN_FORMAT];
         if (NULL != format) {
           switch (format->type_) {
